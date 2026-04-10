@@ -233,7 +233,21 @@
             overflow: hidden;
             margin: 16px 0 8px;
         }
-        .progress-bar { background: #0066cc; height: 100%; transition: width 0.3s ease; }
+        .progress-bar {
+            background: #0066cc;
+            height: 100%;
+            width: 0%;
+            transition: width 0.3s ease;
+        }
+        .progress-bar.loading {
+            width: 100% !important;
+            animation: progressPulse 1.5s ease-in-out infinite;
+        }
+        @keyframes progressPulse {
+            0% { opacity: 0.4; }
+            50% { opacity: 1; }
+            100% { opacity: 0.4; }
+        }
         .progress-text { font-size: 12px; color: #666; text-align: center; }
     </style>
     <meta id="uploadMeta" data-has-data="{{ has_data|tojson }}">
@@ -267,6 +281,7 @@
     <div class="left">
         <div style="display:flex; gap:12px; align-items:center; margin-bottom:12px;">
             <button id="fixAllBtn" onclick="fixAllGroups()" style="background:#28a745;">⚡ Fix All</button>
+            <button id="bestRankBtn" onclick="showBestRank()" style="background:#6f42c1;">Highest/Closing Rank</button>
             <button id="downloadBtn" onclick="downloadCsv()" style="background:#6c757d;">📥 Download CSV</button>
             <span id="groupCount" style="font-size:13px; color:#666;"></span>
         </div>
@@ -342,8 +357,19 @@ document.addEventListener('click', (e) => {
 });
 
 function setLoading(show) {
-    document.getElementById('loadingState').style.display = show ? 'block' : 'none';
-    document.getElementById('sidebarPanel').style.display = show ? 'none' : 'block';
+    const loadingState = document.getElementById('loadingState');
+    const sidebarPanel = document.getElementById('sidebarPanel');
+    const progressBar = document.getElementById('progressBar');
+
+    if (show) {
+        loadingState.style.display = 'block';
+        sidebarPanel.style.display = 'none';
+        progressBar.classList.add('loading');
+    } else {
+        loadingState.style.display = 'none';
+        sidebarPanel.style.display = 'block';
+        progressBar.classList.remove('loading');
+    }
 }
 
 function renderPagination(totalPages) {
@@ -666,6 +692,71 @@ function downloadCsv() {
 document.addEventListener('DOMContentLoaded', () => {
     if (hasData) loadGroups();
 });
+
+async function showBestRank() {
+    document.getElementById('bestRankOverlay').style.display = 'flex';
+    document.getElementById('bestRankBody').innerHTML = '<div class="empty-state">Loading...</div>';
+    document.getElementById('bestRankCount').textContent = '';
+
+    try {
+        const res = await fetch('/api/best-rank');
+        const data = await res.json();
+        const rows = data.rows || [];
+        const cols = data.columns || [];
+
+        if (rows.length === 0) {
+            document.getElementById('bestRankBody').innerHTML = '<div class="empty-state">No data found.</div>';
+            return;
+        }
+
+        let html = '<table style="width:100%;border-collapse:collapse;font-size:11px;">';
+        html += '<thead><tr>';
+        for (const col of cols) html += `<th style="background:#e9ecef;border:1px solid #dee2e6;padding:6px 8px;text-align:left;white-space:nowrap;">${escapeHtml(col)}</th>`;
+        html += '</tr></thead><tbody>';
+
+        for (const row of rows) {
+            html += '<tr>';
+            for (const col of cols) {
+                html += `<td style="border:1px solid #dee2e6;padding:6px 8px;white-space:nowrap;">${escapeHtml(String(row[col] ?? ''))}</td>`;
+            }
+            html += '</tr>';
+        }
+        html += '</tbody></table>';
+
+        document.getElementById('bestRankBody').innerHTML = html;
+        document.getElementById('bestRankCount').textContent = `${rows.length} rows shown`;
+    } catch (err) {
+        document.getElementById('bestRankBody').innerHTML = '<div class="empty-state">Error loading data.</div>';
+    }
+}
+
+function closeBestRank() {
+    document.getElementById('bestRankOverlay').style.display = 'none';
+}
+
+function downloadBestRank() {
+    window.location.href = '/api/best-rank/download';
+}
+
+// Close on overlay click
+document.getElementById('bestRankOverlay').addEventListener('click', (e) => {
+    if (e.target.id === 'bestRankOverlay') closeBestRank();
+});
 </script>
+
+    <!-- Best Rank Modal -->
+    <div id="bestRankOverlay" style="position:fixed;top:0;left:0;width:100%;height:100%;background:rgba(0,0,0,0.6);z-index:3000;display:none;align-items:center;justify-content:center;">
+    <div style="background:#fff;border-radius:8px;width:95%;max-width:1200px;max-height:90vh;display:flex;flex-direction:column;box-shadow:0 20px 60px rgba(0,0,0,0.3);">
+        <div style="padding:16px 20px;border-bottom:1px solid #e0e0e0;display:flex;align-items:center;gap:12px;">
+        <span style="font-weight:600;font-size:16px;flex:1;">Highest/Closing Rank per Group</span>
+        <button onclick="downloadBestRank()" style="background:#28a745;">📥 Download CSV</button>
+        <button onclick="closeBestRank()" style="background:#6c757d;">✕ Close</button>
+        </div>
+        <div id="bestRankBody" style="overflow:auto;padding:16px;flex:1;">
+        <div class="empty-state">Loading...</div>
+        </div>
+        <div style="padding:10px 20px;border-top:1px solid #e0e0e0;font-size:13px;color:#666;" id="bestRankCount"></div>
+    </div>
+    </div>
 </body>
 </html>
