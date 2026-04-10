@@ -319,8 +319,42 @@ def get_groups():
     sid = get_session_id()
     if not session_exists(sid):
         return jsonify({'error': 'No data'}), 404
-    return jsonify(clean_for_json(compute_groups_from_db(sid)))
 
+    def generate():
+        data = compute_groups_from_db(sid)
+
+        all_groups = data['allGroups']
+        inconsistent = data['inconsistentGroups']
+
+        total = len(all_groups)
+
+        # META
+        yield json.dumps({
+            "type": "meta",
+            "totalGroups": total
+        }) + "\n"
+
+        # CHUNKS
+        CHUNK_SIZE = 20
+
+        for i in range(0, total, CHUNK_SIZE):
+            chunk = all_groups[i:i+CHUNK_SIZE]
+
+            progress = int((i + len(chunk)) / total * 100)
+
+            yield json.dumps({
+                "type": "chunk",
+                "allGroups": chunk,
+                "progress": progress
+            }) + "\n"
+
+        # FINAL
+        yield json.dumps({
+            "type": "done",
+            "inconsistentGroups": inconsistent
+        }) + "\n"
+
+    return Response(generate(), mimetype='text/plain')
 
 @app.route('/api/fix', methods=['POST'])
 def fix_group():
