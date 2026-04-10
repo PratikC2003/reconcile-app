@@ -1,0 +1,671 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>CSV Reconciliation Tool</title>
+    <style>
+        * { box-sizing: border-box; }
+        body { font-family: system-ui, -apple-system, sans-serif; padding: 20px; max-width: 1400px; margin: 0 auto; }
+        button { padding: 6px 12px; cursor: pointer; background: #0066cc; color: white; border: none; border-radius: 4px; }
+        button:hover { background: #0052a3; }
+        button:disabled { opacity: 0.5; cursor: not-allowed; }
+        button[style*="background:#28a745"]:hover { background: #218838 !important; }
+        button[style*="background:#6c757d"]:hover { background: #5a6268 !important; }
+        input[type="file"] { padding: 4px; }
+
+        .container { display: flex; gap: 24px; margin-top: 16px; }
+        .left { flex: 3; }
+        .right { flex: 1; min-width: 280px; max-height: calc(100vh - 120px); overflow-y: auto; position: sticky; top: 20px; }
+
+        /* Table accordion styles */
+        .table-group { border: 1px solid #e0e0e0; border-radius: 6px; margin-bottom: 8px; overflow: hidden; }
+        .table-group-header {
+            background: #f8f9fa;
+            padding: 10px 14px;
+            cursor: pointer;
+            display: flex;
+            align-items: center;
+            gap: 12px;
+            font-size: 13px;
+        }
+        .table-group-header:hover { background: #e9ecef; }
+        .table-group-header.warning { background: #fff3cd; }
+        .table-group-header.warning:hover { background: #ffeaa7; }
+        .table-group-header .pin {
+            font-family: monospace;
+            background: #495057;
+            color: #fff;
+            padding: 2px 8px;
+            border-radius: 3px;
+            font-size: 12px;
+        }
+        .table-group-header .core-name { flex: 1; font-weight: 500; color: #212529; }
+        .table-group-header .count {
+            color: #6c757d;
+            font-size: 12px;
+        }
+        .table-group-header .warning-badge {
+            background: #ffc107;
+            color: #212529;
+            padding: 2px 8px;
+            border-radius: 3px;
+            font-size: 11px;
+            font-weight: 600;
+        }
+        .table-group-content { display: none; padding: 8px; background: #fff; overflow-x: auto; }
+        .table-group-content table { width: 100%; border-collapse: collapse; font-size: 11px; }
+        .table-group-content th {
+            background: #e9ecef;
+            border: 1px solid #dee2e6;
+            padding: 6px 8px;
+            text-align: left;
+            font-weight: 600;
+        }
+        .table-group-content td {
+            border: 1px solid #dee2e6;
+            padding: 6px 8px;
+        }
+        .table-group-content tr:nth-child(even) { background: #f8f9fa; }
+        .table-group-content tr.inconsistent-row { background: #fff3cd !important; }
+        .table-group-content tr.inconsistent-row td { border-left: 3px solid #ffc107; }
+        .table-group-content td mark {
+            background: #ff6b6b;
+            color: #fff;
+            padding: 1px 2px;
+            border-radius: 2px;
+            font-weight: bold;
+        }
+
+        /* Pagination */
+        .pagination { display: flex; gap: 8px; align-items: center; justify-content: center; margin: 16px 0; }
+        .pagination button { min-width: 32px; padding: 6px; }
+        .pagination button.active { background: #495057; }
+        .pagination .page-info { font-size: 13px; color: #6c757d; }
+
+        /* Sidebar */
+        .sidebar-warning {
+            background: #fff3cd;
+            border: 1px solid #ffc107;
+            border-radius: 6px;
+            padding: 10px 12px;
+            margin-bottom: 10px;
+            cursor: pointer;
+        }
+        .sidebar-warning:hover { background: #ffeaa7; }
+        .sidebar-warning .pin {
+            font-family: monospace;
+            background: #333;
+            color: #fff;
+            padding: 2px 6px;
+            border-radius: 3px;
+            font-size: 11px;
+        }
+        .sidebar-warning .title { font-size: 12px; margin-top: 4px; color: #856404; }
+
+        /* Sidebar accordion */
+        .sidebar-warning { cursor: pointer; }
+        .sidebar-warning-header {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+        }
+        .sidebar-warning-header .toggle-icon { font-size: 10px; }
+        .sidebar-variants {
+            display: none;
+            padding: 8px 0 0 4px;
+            border-left: 2px solid #ffc107;
+            margin-left: 4px;
+            margin-top: 8px;
+        }
+        .sidebar-variant {
+            font-family: monospace;
+            font-size: 11px;
+            background: #fff;
+            border: 1px solid #dee2e6;
+            padding: 6px 8px;
+            margin-bottom: 6px;
+            border-radius: 3px;
+            line-height: 1.4;
+        }
+        .sidebar-variant mark {
+            background: #ff6b6b;
+            color: #fff;
+            padding: 1px 3px;
+            border-radius: 2px;
+            font-weight: bold;
+        }
+        .variant-label {
+            font-size: 10px;
+            color: #666;
+            margin-bottom: 2px;
+        }
+
+        /* Toast notifications */
+        #toastContainer {
+            position: fixed;
+            top: 20px;
+            right: 20px;
+            z-index: 1000;
+            display: flex;
+            flex-direction: column;
+            gap: 10px;
+        }
+        .toast {
+            padding: 12px 16px;
+            border-radius: 6px;
+            color: #fff;
+            font-size: 14px;
+            max-width: 320px;
+            box-shadow: 0 4px 12px rgba(0,0,0,0.15);
+            animation: slideIn 0.3s ease;
+            display: flex;
+            align-items: center;
+            gap: 10px;
+        }
+        .toast.success { background: #28a745; }
+        .toast.error { background: #dc3545; }
+        .toast.info { background: #0066cc; }
+        .toast.warning { background: #ffc107; color: #212529; }
+        .toast.fade-out { animation: fadeOut 0.3s ease forwards; }
+        @keyframes slideIn {
+            from { transform: translateX(100%); opacity: 0; }
+            to { transform: translateX(0); opacity: 1; }
+        }
+        @keyframes fadeOut {
+            from { transform: translateX(0); opacity: 1; }
+            to { transform: translateX(100%); opacity: 0; }
+        }
+
+        /* Custom Modal */
+        #modalOverlay {
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            background: rgba(0,0,0,0.5);
+            z-index: 2000;
+            display: none;
+            align-items: center;
+            justify-content: center;
+        }
+        #modalOverlay.active { display: flex; }
+        .modal {
+            background: #fff;
+            border-radius: 8px;
+            max-width: 480px;
+            width: 90%;
+            box-shadow: 0 20px 60px rgba(0,0,0,0.3);
+            animation: modalSlideIn 0.3s ease;
+        }
+        @keyframes modalSlideIn {
+            from { transform: translateY(-30px); opacity: 0; }
+            to { transform: translateY(0); opacity: 1; }
+        }
+        .modal-header {
+            padding: 16px 20px;
+            border-bottom: 1px solid #e0e0e0;
+            font-weight: 600;
+            font-size: 16px;
+        }
+        .modal-body {
+            padding: 20px;
+            font-size: 14px;
+            line-height: 1.5;
+            max-height: 400px;
+            overflow-y: auto;
+        }
+        .modal-footer {
+            padding: 12px 20px 16px;
+            display: flex;
+            gap: 10px;
+            justify-content: flex-end;
+        }
+        .modal-footer button { padding: 8px 16px; }
+        .modal-footer .btn-cancel { background: #6c757d; }
+        .modal-footer .btn-confirm { background: #28a745; }
+
+        .empty-state { color: #666; font-style: italic; padding: 20px; text-align: center; }
+
+        .progress-container {
+            background: #e9ecef;
+            border-radius: 4px;
+            height: 8px;
+            overflow: hidden;
+            margin: 16px 0 8px;
+        }
+        .progress-bar { background: #0066cc; height: 100%; transition: width 0.3s ease; }
+        .progress-text { font-size: 12px; color: #666; text-align: center; }
+    </style>
+    <meta id="uploadMeta" data-has-data="{{ has_data|tojson }}">
+</head>
+<body>
+
+<h2>Upload CSV</h2>
+<form method="POST" enctype="multipart/form-data">
+    <input type="file" name="file" accept=".csv">
+    <button type="submit">Upload</button>
+</form>
+
+<br>
+
+<div id="toastContainer"></div>
+
+<!-- Custom Confirmation Modal -->
+<div id="modalOverlay">
+    <div class="modal">
+        <div class="modal-header" id="modalTitle">Confirm Action</div>
+        <div class="modal-body" id="modalBody">Are you sure?</div>
+        <div class="modal-footer">
+            <button class="btn-cancel" onclick="modalCancel()">Cancel</button>
+            <button class="btn-confirm" onclick="modalConfirm()">Confirm</button>
+        </div>
+    </div>
+</div>
+
+{% if data %}
+<div class="container">
+    <div class="left">
+        <div style="display:flex; gap:12px; align-items:center; margin-bottom:12px;">
+            <button id="fixAllBtn" onclick="fixAllGroups()" style="background:#28a745;">⚡ Fix All</button>
+            <button id="downloadBtn" onclick="downloadCsv()" style="background:#6c757d;">📥 Download CSV</button>
+            <span id="groupCount" style="font-size:13px; color:#666;"></span>
+        </div>
+
+        <div id="tableContainer"></div>
+        <div id="pagination" class="pagination"></div>
+    </div>
+
+    <div class="right">
+        <h3 style="margin-top:0;">⚠ Inconsistencies</h3>
+        <div id="loadingState">
+            <div class="progress-container"><div class="progress-bar" id="progressBar" style="width:0%"></div></div>
+            <div class="progress-text" id="progressText">Analyzing...</div>
+        </div>
+        <div id="sidebarPanel" style="display:none;"></div>
+    </div>
+</div>
+{% endif %}
+
+<script>
+const hasData = document.getElementById('uploadMeta')?.dataset.hasData === 'true';
+const PAGE_SIZE = 20;
+let allGroups = [];
+let inconsistentGroups = [];
+let currentPage = 1;
+
+function escapeHtml(text) {
+    return text.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+}
+
+function showToast(message, type = 'info', duration = 4000) {
+    const container = document.getElementById('toastContainer');
+    const toast = document.createElement('div');
+    toast.className = `toast ${type}`;
+    toast.innerHTML = message;
+    container.appendChild(toast);
+
+    setTimeout(() => {
+        toast.classList.add('fade-out');
+        setTimeout(() => toast.remove(), 300);
+    }, duration);
+}
+
+// Modal functions
+let modalResolve = null;
+let modalReject = null;
+
+function showModal(title, body) {
+    return new Promise((resolve, reject) => {
+        modalResolve = resolve;
+        modalReject = reject;
+        document.getElementById('modalTitle').textContent = title;
+        document.getElementById('modalBody').innerHTML = body;
+        document.getElementById('modalOverlay').classList.add('active');
+    });
+}
+
+function modalConfirm() {
+    document.getElementById('modalOverlay').classList.remove('active');
+    if (modalResolve) modalResolve(true);
+    modalResolve = null;
+}
+
+function modalCancel() {
+    document.getElementById('modalOverlay').classList.remove('active');
+    if (modalResolve) modalResolve(false);
+    modalResolve = null;
+}
+
+// Close modal on overlay click
+document.addEventListener('click', (e) => {
+    if (e.target.id === 'modalOverlay') modalCancel();
+});
+
+function setLoading(show) {
+    document.getElementById('loadingState').style.display = show ? 'block' : 'none';
+    document.getElementById('sidebarPanel').style.display = show ? 'none' : 'block';
+}
+
+function renderPagination(totalPages) {
+    const container = document.getElementById('pagination');
+    if (totalPages <= 1) { container.innerHTML = ''; return; }
+
+    let html = `<button ${currentPage === 1 ? 'disabled' : ''} onclick="changePage(${currentPage - 1})">←</button>`;
+    html += `<span class="page-info">Page ${currentPage} of ${totalPages}</span>`;
+    html += `<button ${currentPage === totalPages ? 'disabled' : ''} onclick="changePage(${currentPage + 1})">→</button>`;
+    container.innerHTML = html;
+}
+
+function changePage(page) {
+    currentPage = page;
+    renderTablePage();
+}
+
+window.columns = {{ columns | tojson }} || [];
+
+function renderTablePage() {
+    const container = document.getElementById('tableContainer');
+    const start = (currentPage - 1) * PAGE_SIZE;
+    const pageGroups = allGroups.slice(start, start + PAGE_SIZE);
+
+    let html = '';
+    for (const g of pageGroups) {
+        const hasWarning = g.variants.length > 1;
+        const firstVariant = g.variants[0];
+
+        html += `<div class="table-group" id="group-${g.groupId}">`;
+        html += `<div class="table-group-header ${hasWarning ? 'warning' : ''}" onclick="toggleGroup('${g.groupId}')">`;
+        html += `<span class="pin">${g.pin}</span>`;
+        html += `<span class="core-name">${escapeHtml(firstVariant.substring(0, 60))}${firstVariant.length > 60 ? '...' : ''}</span>`;
+        html += `<span class="count">${g.items.length} rows</span>`;
+        if (hasWarning) html += `<span class="warning-badge">${g.variants.length} variants</span>`;
+        html += `<span id="icon-${g.groupId}">▶</span>`;
+        html += `</div>`;
+
+        html += `<div class="table-group-content" id="content-${g.groupId}">`;
+        html += '<table><thead><tr>';
+        for (const col of window.columns) {
+            html += `<th>${escapeHtml(col)}</th>`;
+        }
+        html += '</tr></thead><tbody>';
+
+        for (const item of g.items) {
+            html += '<tr>';
+            const row = item.fullRow || {};
+            for (const col of window.columns) {
+                let cellValue = String(row[col] || '');
+                // Apply diff highlighting to the institute column for inconsistent groups
+                if (hasWarning && col.toLowerCase().includes('institute')) {
+                    cellValue = formatDiff(cellValue, firstVariant);
+                } else {
+                    cellValue = escapeHtml(cellValue);
+                }
+                html += `<td>${cellValue}</td>`;
+            }
+            html += '</tr>';
+        }
+        html += '</tbody></table>';
+        html += '</div></div>';
+    }
+
+    container.innerHTML = html;
+    renderPagination(Math.ceil(allGroups.length / PAGE_SIZE));
+    document.getElementById('groupCount').textContent = `${allGroups.length} groups, ${allGroups.reduce((a,g) => a + g.items.length, 0)} rows`;
+}
+
+function toggleGroup(groupId) {
+    const content = document.getElementById(`content-${groupId}`);
+    const icon = document.getElementById(`icon-${groupId}`);
+    const isOpen = content.style.display === 'block';
+    content.style.display = isOpen ? 'none' : 'block';
+    icon.textContent = isOpen ? '▶' : '▼';
+}
+
+function renderSidebar() {
+    const panel = document.getElementById('sidebarPanel');
+    if (inconsistentGroups.length === 0) {
+        panel.innerHTML = '<div class="empty-state">No inconsistencies</div>';
+        return;
+    }
+
+    let html = '';
+    for (const g of inconsistentGroups) {
+        const base = g.variants[0];
+        html += `<div class="sidebar-warning" id="sidebar-${g.groupId}">`;
+        html += `<div class="sidebar-warning-header" onclick="toggleSidebar('${g.groupId}')">`;
+        html += `<span class="toggle-icon" id="sidebar-icon-${g.groupId}">▶</span>`;
+        html += `<span class="pin">${g.pin}</span>`;
+        html += `<span style="flex:1;">${g.variants.length} variants</span>`;
+        html += `<button onclick="event.stopPropagation(); jumpToGroup('${g.groupId}')" style="font-size:11px; padding:2px 6px;">View</button>`;
+        html += `<button onclick="event.stopPropagation(); fixGroup('${g.groupId}')" style="font-size:11px; padding:2px 6px; background:#28a745;">Fix</button>`;
+        html += `</div>`;
+        html += `<div class="sidebar-variants" id="sidebar-variants-${g.groupId}">`;
+
+        for (let i = 0; i < g.variants.length; i++) {
+            const v = g.variants[i];
+            const diffHtml = i === 0 ? escapeHtml(v) : formatDiff(v, base);
+            html += `<div class="sidebar-variant">`;
+            html += `<div class="variant-label">${i === 0 ? 'REFERENCE' : 'VARIANT ' + i}</div>`;
+            html += diffHtml;
+            html += `</div>`;
+        }
+        html += '</div></div>';
+    }
+    panel.innerHTML = html;
+}
+
+function toggleSidebar(groupId) {
+    const variants = document.getElementById(`sidebar-variants-${groupId}`);
+    const icon = document.getElementById(`sidebar-icon-${groupId}`);
+    const isOpen = variants.style.display === 'block';
+    variants.style.display = isOpen ? 'none' : 'block';
+    icon.textContent = isOpen ? '▶' : '▼';
+}
+
+function formatDiff(variant, reference) {
+    // Simple LCS-based diff to find common subsequences
+    const v = variant;
+    const r = reference;
+
+    // Find longest common subsequence positions
+    const vLen = v.length, rLen = r.length;
+    const dp = Array(vLen + 1).fill(null).map(() => Array(rLen + 1).fill(0));
+
+    for (let i = 1; i <= vLen; i++) {
+        for (let j = 1; j <= rLen; j++) {
+            if (v[i-1] === r[j-1]) {
+                dp[i][j] = dp[i-1][j-1] + 1;
+            } else {
+                dp[i][j] = Math.max(dp[i-1][j], dp[i][j-1]);
+            }
+        }
+    }
+
+    // Backtrack to find which chars are common
+    const common = new Set();
+    let i = vLen, j = rLen;
+    while (i > 0 && j > 0) {
+        if (v[i-1] === r[j-1]) {
+            common.add(i-1);
+            i--; j--;
+        } else if (dp[i-1][j] > dp[i][j-1]) {
+            i--;
+        } else {
+            j--;
+        }
+    }
+
+    // Build result highlighting non-common chars
+    let result = '';
+    for (let k = 0; k < vLen; k++) {
+        const char = v[k];
+        if (common.has(k)) {
+            result += escapeHtml(char);
+        } else {
+            result += `<mark>${escapeHtml(char)}</mark>`;
+        }
+    }
+    return result;
+}
+
+// jump function
+function jumpToGroup(groupId) {
+    const g = allGroups.find(x => x.groupId === groupId);
+    if (!g) return;
+
+    const idx = allGroups.findIndex(x => x.groupId === groupId);
+    if (idx === -1) return;
+
+    const targetPage = Math.floor(idx / PAGE_SIZE) + 1;
+    if (targetPage !== currentPage) {
+        currentPage = targetPage;
+        renderTablePage();
+    }
+
+    setTimeout(() => {
+        const content = document.getElementById(`content-${groupId}`);
+        const icon = document.getElementById(`icon-${groupId}`);
+        const el = document.getElementById(`group-${groupId}`);
+        if (content && el) {
+            content.style.display = 'block';
+            if (icon) icon.textContent = '▼';
+            el.scrollIntoView({ behavior: 'smooth', block: 'start', inline: 'nearest' });
+            el.style.boxShadow = '0 0 0 3px #0066cc';
+            setTimeout(() => el.style.boxShadow = '', 1000);
+
+            // Highlight inconsistent rows (those not matching reference)
+            if (g.hasWarning) {
+                const reference = g.variants[0];
+                const rows = content.querySelectorAll('tbody tr');
+                rows.forEach((row, i) => {
+                    const item = g.items[i];
+                    if (item && item.raw !== reference) {
+                        row.classList.add('inconsistent-row');
+                        setTimeout(() => row.classList.remove('inconsistent-row'), 15000);
+                    }
+                });
+            }
+        }
+    }, 50);
+}
+
+async function fixGroup(groupId) {
+    const g = allGroups.find(x => x.groupId === groupId);
+    if (!g || g.variants.length < 2) return;
+
+    const reference = g.variants[0];
+    const confirmed = await showModal(
+        'Fix Group',
+        `Fix all variants to reference?<br><br><b>Reference:</b><br>${escapeHtml(reference)}<br><br>This will update <b>${g.items.length}</b> rows.`
+    );
+    if (!confirmed) return;
+
+    console.log(`[Fix] Group ${groupId}: Standardizing to "${reference}"`);
+
+    try {
+        const res = await fetch('/api/fix', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+                groupId: groupId,
+                reference: reference
+            })
+        });
+
+        const data = await res.json();
+
+        if (data.success) {
+            // Update local state with fixed data
+            allGroups = data.allGroups;
+            inconsistentGroups = data.inconsistentGroups;
+
+            // Re-render to show fixed state
+            renderTablePage();
+            renderSidebar();
+
+            showToast(`✓ Fixed ${data.fixedCount} row(s)!<br>Remaining inconsistencies: ${data.inconsistentCount}`, 'success');
+        } else {
+            showToast('Error: ' + (data.error || 'Unknown error'), 'error');
+        }
+    } catch (err) {
+        console.error('Fix failed:', err);
+        showToast('Failed to apply fix. See console for details.', 'error');
+    }
+}
+
+async function loadGroups() {
+    if (!hasData) return;
+
+    setLoading(true);
+    try {
+        const res = await fetch('/api/groups');
+        const data = await res.json();
+
+        allGroups = data.allGroups || [];
+        inconsistentGroups = data.inconsistentGroups || [];
+
+        setLoading(false);
+        renderTablePage();
+        renderSidebar();
+    } catch (err) {
+        console.error(err);
+        showToast('Error loading data. Please try again.', 'error', 5000);
+        document.getElementById('sidebarPanel').innerHTML = '<div class="empty-state">Error loading</div>';
+        setLoading(false);
+    }
+}
+
+async function fixAllGroups() {
+    if (!hasData) return;
+
+    const inconsistentCount = inconsistentGroups.length;
+    if (inconsistentCount === 0) {
+        showToast('No inconsistencies found - all groups are already consistent!', 'info');
+        return;
+    }
+
+    const confirmed = await showModal(
+        'Fix All Groups',
+        `Fix ALL <b>${inconsistentCount}</b> inconsistent group(s)?<br><br>This will standardize all alloted_institute values to their reference values across the entire dataset.`
+    );
+    if (!confirmed) return;
+
+    try {
+        const res = await fetch('/api/fix-all', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({})
+        });
+
+        const data = await res.json();
+
+        if (data.success) {
+            allGroups = data.allGroups;
+            inconsistentGroups = data.inconsistentGroups;
+
+            renderTablePage();
+            renderSidebar();
+
+            showToast(data.message || `✓ Fixed ${data.fixedCount} row(s)!`, 'success');
+        } else {
+            showToast('Error: ' + (data.error || 'Unknown error'), 'error');
+        }
+    } catch (err) {
+        console.error('Fix all failed:', err);
+        showToast('Failed to apply fixes. See console for details.', 'error');
+    }
+}
+
+function downloadCsv() {
+    if (!hasData) return;
+
+    // Trigger download by navigating to the download endpoint
+    window.location.href = '/api/download';
+}
+
+document.addEventListener('DOMContentLoaded', () => {
+    if (hasData) loadGroups();
+});
+</script>
+</body>
+</html>
