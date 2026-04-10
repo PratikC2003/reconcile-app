@@ -129,13 +129,47 @@ def index():
 
 @app.route('/api/groups')
 def get_groups():
-    """Get computed groups for current session."""
+    """Get computed groups for current session with chunked loading support."""
     sid = get_session_id()
 
     if sid not in USER_DATA:
         return jsonify({'error': 'No data'}), 404
 
-    return jsonify(USER_DATA[sid]['groups'])
+    import json
+    
+    def generate():
+        groups = USER_DATA[sid]['groups']
+        all_groups = groups.get('allGroups', [])
+        inconsistent = groups.get('inconsistentGroups', [])
+        total = len(all_groups)
+        
+        # Send metadata first
+        yield json.dumps({
+            'type': 'meta',
+            'totalGroups': groups.get('totalGroups', 0),
+            'inconsistentCount': groups.get('inconsistentCount', 0),
+            'chunkCount': (total + 49) // 50  # 50 per chunk
+        }) + '\n'
+        
+        # Send groups in chunks
+        chunk_size = 50
+        for i in range(0, total, chunk_size):
+            chunk = all_groups[i:i + chunk_size]
+            yield json.dumps({
+                'type': 'chunk',
+                'index': i // chunk_size,
+                'progress': min(100, int((i + len(chunk)) / total * 100)),
+                'allGroups': chunk
+            }) + '\n'
+        
+        # Send inconsistent groups at the end
+        yield json.dumps({
+            'type': 'done',
+            'progress': 100,
+            'inconsistentGroups': inconsistent
+        }) + '\n'
+
+    return Response(generate(), mimetype='application/x-ndjson')
 
 
 @app.route('/api/fix', methods=['POST'])
@@ -298,4 +332,4 @@ def download_csv():
 
 
 if __name__ == '__main__':
-    app.run(debug=True, port=8000)
+    app.run(host='0.0.0.0', port=8000)

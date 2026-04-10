@@ -597,13 +597,50 @@ async function loadGroups() {
     if (!hasData) return;
 
     setLoading(true);
+    const progressBar = document.getElementById('progressBar');
+    const progressText = document.getElementById('progressText');
+    
+    allGroups = [];
+    inconsistentGroups = [];
+    
     try {
         const res = await fetch('/api/groups');
-        const data = await res.json();
-
-        allGroups = data.allGroups || [];
-        inconsistentGroups = data.inconsistentGroups || [];
-
+        const reader = res.body.getReader();
+        const decoder = new TextDecoder();
+        let buffer = '';
+        
+        while (true) {
+            const { done, value } = await reader.read();
+            if (done) break;
+            
+            buffer += decoder.decode(value, { stream: true });
+            const lines = buffer.split('\n');
+            buffer = lines.pop(); // Keep incomplete line in buffer
+            
+            for (const line of lines) {
+                if (!line.trim()) continue;
+                
+                const data = JSON.parse(line);
+                
+                if (data.type === 'meta') {
+                    progressText.textContent = `Loading ${data.totalGroups} groups...`;
+                } else if (data.type === 'chunk') {
+                    allGroups.push(...data.allGroups);
+                    progressBar.style.width = data.progress + '%';
+                    progressText.textContent = `Loading groups... ${data.progress}% (${allGroups.length} loaded)`;
+                    
+                    // Render incrementally for better UX
+                    if (currentPage === 1 && allGroups.length <= PAGE_SIZE * 2) {
+                        renderTablePage();
+                    }
+                } else if (data.type === 'done') {
+                    inconsistentGroups = data.inconsistentGroups || [];
+                    progressBar.style.width = '100%';
+                    progressText.textContent = `Complete! ${allGroups.length} groups loaded`;
+                }
+            }
+        }
+        
         setLoading(false);
         renderTablePage();
         renderSidebar();
